@@ -3,7 +3,7 @@ import io
 from typing import Optional
 
 import boto3
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from pdf2image import convert_from_bytes
 
@@ -14,6 +14,9 @@ SPACES_SECRET = os.environ.get("SPACES_SECRET")
 SPACES_ENDPOINT = os.environ.get("SPACES_ENDPOINT")  # e.g. "nyc3.digitaloceanspaces.com"
 SPACES_REGION = os.environ.get("SPACES_REGION", "nyc3")
 SPACES_BUCKET = os.environ.get("SPACES_BUCKET")
+
+# Optional simple API key for this service (recommended)
+API_KEY = os.environ.get("API_KEY")  # e.g. set in DO as a random long string
 
 if not all([SPACES_KEY, SPACES_SECRET, SPACES_ENDPOINT, SPACES_BUCKET]):
     # Fail fast if misconfigured
@@ -37,7 +40,7 @@ app = FastAPI()
 
 class PdfToJpgRequest(BaseModel):
     pdfKey: str
-    outputKeyPrefix: Optional[str] = None  # optional override
+    outputKeyPrefix: Optional[str] = None  # optional override (still forced under thumbnails/)
 
 
 def get_object_bytes(key: str) -> bytes:
@@ -63,15 +66,38 @@ def put_object_bytes(key: str, data: bytes, content_type: str = "image/jpeg") ->
         raise HTTPException(status_code=500, detail="Failed to upload preview image")
 
 
+def build_thumbnail_key(pdf_key: str, output_prefix: Optional[str]) -> str:
+   
+    if output_prefix:
+        base_prefix = output_prefix.strip("/")
+        if not base_prefix.startswith("thumbnails/"):
+            base_prefix = f"thumbnails/{base_prefix}"
+        base = base_prefix
+    else:
+        normalized = pdf_key.lstrip("/")
+        if normalized.lower().endswith(".pdf"):
+            normalized = normalized[:-4]
+        base = f"thumbnails/{normalized}"
+
+    return f"{base}-page-1.jpg"
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
 @app.post("/pdf-to-jpg")
-def pdf_to_jpg(payload: PdfToJpgRequest):
+def pdf_to_jpg(
+    payload: PdfToJpgRequest,
+    x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
+):
+    # --- Simple API key check (optional but strongly recommended) ---
+    if API_KEY:
+        if not x_api_key or x_api_key != API_KEY:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
     pdf_key = payload.pdfKey
-    output_prefix = payload.outputKeyPrefix
 
     if not pdf_key:
         raise HTTPException(status_code=400, detail="pdfKey is required")
@@ -97,17 +123,8 @@ def pdf_to_jpg(payload: PdfToJpgRequest):
     img_buffer.seek(0)
     img_bytes = img_buffer.read()
 
-    # 4) Decide output key
-    if output_prefix:
-        base_prefix = output_prefix.rstrip("/")
-        jpg_key = f"{base_prefix}.jpg"
-    else:
-        # derive from pdfKey
-        if pdf_key.lower().endswith(".pdf"):
-            base = pdf_key[:-4]
-        else:
-            base = pdf_key
-        jpg_key = f"previews/{base}-page-1.jpg"
+    # 4) Decide output key (always under thumbnails/)
+    jpg_key = build_thumbnail_key(pdf_key, payload.outputKeyPrefix)
 
     # 5) Upload JPEG to Spaces
     put_object_bytes(jpg_key, img_bytes, content_type="image/jpeg")
