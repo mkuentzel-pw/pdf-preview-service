@@ -72,14 +72,14 @@ def build_thumbnail_key(pdf_key: str, output_prefix: Optional[str]) -> str:
         base_prefix = output_prefix.strip("/")
         if not base_prefix.startswith("thumbnails/"):
             base_prefix = f"thumbnails/{base_prefix}"
-        base = base_prefix
+        base = base_prefi
     else:
         normalized = pdf_key.lstrip("/")
         if normalized.lower().endswith(".pdf"):
             normalized = normalized[:-4]
         base = f"thumbnails/{normalized}"
 
-    return f"{base}-page-1.jpg"
+    return f"{base}-thumbnail.jpg"
 
 
 @app.get("/health")
