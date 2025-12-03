@@ -72,7 +72,7 @@ def build_thumbnail_key(pdf_key: str, output_prefix: Optional[str]) -> str:
         base_prefix = output_prefix.strip("/")
         if not base_prefix.startswith("thumbnails/"):
             base_prefix = f"thumbnails/{base_prefix}"
-        base = base_prefi
+        base = base_prefix
     else:
         normalized = pdf_key.lstrip("/")
         if normalized.lower().endswith(".pdf"):
